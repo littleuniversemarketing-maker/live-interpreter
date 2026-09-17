@@ -88,7 +88,7 @@ export class OpenAIRealtimeInterpreterSession implements InterpreterSession {
             transcription: { model: "whisper-1" },
           },
           output: {
-            format: { type: "audio/pcm" },
+            format: { type: "audio/pcm", rate: 24000 },
             voice: opts.voice || LANGUAGES[opts.targetLang].defaultVoice,
           },
         },
