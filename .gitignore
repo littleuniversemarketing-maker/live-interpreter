@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+*.tsbuildinfo
+
+# Netlify build/deploy state (generated), but keep agent run summaries
+.netlify/*
+!.netlify/results.md
+
+# Logs and local env
+*.log
+.env
+.env.*
+!.env.example
