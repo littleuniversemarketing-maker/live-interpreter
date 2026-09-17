@@ -1,0 +1,22 @@
+# This repo is a monorepo: `frontend/` is the deployable Vite + React PWA and
+# `backend/` is a standalone Node WebSocket relay that is not hosted here.
+# Point Netlify at the frontend workspace so installs and the build run there.
+[build]
+  base = "frontend"
+  # Install explicitly before building. Netlify's CI install step is skipped in
+  # some deploy paths (e.g. CLI/preview deploys), which leaves `node_modules`
+  # absent and makes `tsc`/`vite` unresolvable. `npm install` is a fast no-op
+  # when the packages are already present and honours package-lock.json.
+  command = "npm install && npm run build"
+  # Relative to `base`, i.e. frontend/dist
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# Single-page app: hand any unmatched path to the app shell so deep links and
+# the PWA start_url resolve. Real files in the publish directory still win.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
