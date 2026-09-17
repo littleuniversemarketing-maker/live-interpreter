@@ -14,15 +14,13 @@ import type {
 type Listener<T> = (e: T) => void;
 
 /**
- * NOTE for whoever maintains this: OpenAI's Realtime API wire format
- * (event names / session.update shape) has changed more than once since
- * launch. The event names below (session.update, input_audio_buffer.*,
- * response.*, conversation.item.input_audio_transcription.*) reflect the
- * documented protocol as of early 2026 — verify against
- * https://platform.openai.com/docs/guides/realtime before deploying, and
- * update this one file if anything has moved. Everything else in the app
- * only talks to the InterpreterSession interface, so a protocol change is
- * isolated here.
+ * OpenAI retired the Realtime "beta" API shape on 2026-05-12. This file
+ * targets the current GA interface: no OpenAI-Beta header, session config
+ * nested under session.audio.input / session.audio.output, and renamed
+ * server events (response.output_audio.delta instead of response.audio.delta,
+ * etc). If OpenAI changes this again, this is the one file to update —
+ * verify against https://platform.openai.com/docs/guides/realtime-conversations
+ * before assuming this is still current.
  */
 export class OpenAIRealtimeInterpreterSession implements InterpreterSession {
   private ws: WebSocket | null = null;
@@ -75,18 +73,24 @@ export class OpenAIRealtimeInterpreterSession implements InterpreterSession {
     this.send({
       type: "session.update",
       session: {
-        modalities: ["audio", "text"],
+        type: "realtime",
+        output_modalities: ["audio"],
         instructions,
-        voice: opts.voice || LANGUAGES[opts.targetLang].defaultVoice,
-        input_audio_format: "pcm16",
-        output_audio_format: "pcm16",
-        input_audio_transcription: { model: "whisper-1" },
-        turn_detection: {
-          type: "server_vad",
-          // Section 5: default 500-800ms silence timeout, configurable.
-          silence_duration_ms: opts.silenceTimeoutMs,
-          prefix_padding_ms: 300,
-          threshold: 0.5,
+        audio: {
+          input: {
+            format: { type: "audio/pcm", rate: 24000 },
+            turn_detection: {
+              type: "server_vad",
+              silence_duration_ms: opts.silenceTimeoutMs,
+              prefix_padding_ms: 300,
+              threshold: 0.5,
+            },
+            transcription: { model: "whisper-1" },
+          },
+          output: {
+            format: { type: "audio/pcm" },
+            voice: opts.voice || LANGUAGES[opts.targetLang].defaultVoice,
+          },
         },
       },
     });
@@ -98,9 +102,6 @@ export class OpenAIRealtimeInterpreterSession implements InterpreterSession {
     const context = this.rollingContext.length
       ? `\n\nRecent conversation context (most recent last), use it only to resolve pronouns, short replies like "yes/no", and ellipsis — do not repeat it back:\n${this.rollingContext.join("\n")}`
       : "";
-    // Section 12: preserve meaning, not word-for-word; preserve names,
-    // numbers, dates, addresses, currencies, terminology, tone; no
-    // unnecessary added explanation.
     return [
       `You are a live simultaneous interpreter, not a conversational assistant.`,
       `The speaker will say something in ${sourceLabel}. Your ONLY job is to speak the equivalent meaning aloud in natural, fluent ${targetLabel}.`,
@@ -120,7 +121,6 @@ export class OpenAIRealtimeInterpreterSession implements InterpreterSession {
       this.ws = new WebSocket(url, {
         headers: {
           Authorization: `Bearer ${config.openaiApiKey}`,
-          "OpenAI-Beta": "realtime=v1",
         },
       });
 
@@ -194,9 +194,7 @@ export class OpenAIRealtimeInterpreterSession implements InterpreterSession {
         this.emit("lifecycle", { speaker: this.speaker, type: "response_started" });
         break;
 
-      // Streamed transcript of the *translated* speech as it's generated —
-      // this is what we show as the live translation text (section 4/6).
-      case "response.audio_transcript.delta":
+      case "response.output_audio_transcript.delta":
         this.emit("translation", {
           speaker: this.speaker,
           sourceLang: this.sourceLang,
@@ -207,7 +205,7 @@ export class OpenAIRealtimeInterpreterSession implements InterpreterSession {
         });
         break;
 
-      case "response.audio_transcript.done":
+      case "response.output_audio_transcript.done":
         this.emit("translation", {
           speaker: this.speaker,
           sourceLang: this.sourceLang,
@@ -219,10 +217,7 @@ export class OpenAIRealtimeInterpreterSession implements InterpreterSession {
         this.pushContext(`Translated to ${LANGUAGES[this.targetLang].label}: ${msg.transcript ?? ""}`);
         break;
 
-      // Streamed synthesized audio — forward straight through to the client
-      // audio queue (section 7). This is the core of the low-latency path:
-      // we don't wait for response.done before playing anything.
-      case "response.audio.delta":
+      case "response.output_audio.delta":
         this.emit("audio", { speaker: this.speaker, audioBase64: msg.delta ?? "" });
         break;
 
@@ -239,9 +234,6 @@ export class OpenAIRealtimeInterpreterSession implements InterpreterSession {
         break;
 
       default:
-        // Unhandled event types (rate limit notices, item lifecycle, etc.)
-        // are intentionally ignored here — see README for the full list
-        // this provider currently consumes.
         break;
     }
   }
@@ -255,7 +247,6 @@ export class OpenAIRealtimeInterpreterSession implements InterpreterSession {
 
   private pushContext(line: string) {
     this.rollingContext.push(line);
-    // Section 13: rolling window, not indefinite history.
     if (this.rollingContext.length > this.rollingContextTurns) {
       this.rollingContext.shift();
     }
@@ -274,7 +265,6 @@ export class OpenAIRealtimeInterpreterSession implements InterpreterSession {
     this.send({ type: "response.create" });
   }
 
-  /** Cancels the in-flight response — used when the other speaker interrupts (section 14). */
   interruptResponse(): void {
     this.send({ type: "response.cancel" });
     this.emit("lifecycle", { speaker: this.speaker, type: "interrupted" });
