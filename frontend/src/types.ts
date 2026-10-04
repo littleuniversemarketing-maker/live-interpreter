@@ -39,6 +39,12 @@ export interface ProviderError {
   recoverable: boolean;
 }
 
+export interface CoachSuggestion {
+  reply: string;
+  romanization: string | null;
+  audioBase64: string | null;
+}
+
 export interface ConversationTurn {
   id: string;
   speaker: "A" | "B";
