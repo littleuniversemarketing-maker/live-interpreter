@@ -14,6 +14,9 @@ export const config = {
   port: Number(process.env.PORT ?? 8787),
   openaiApiKey: required("OPENAI_API_KEY"),
   openaiRealtimeModel: process.env.OPENAI_REALTIME_MODEL ?? "gpt-realtime",
+  // Plain text model used for the "Coach me" reply-suggestion feature — a
+  // separate, on-demand request, not part of the live realtime session.
+  coachModel: process.env.COACH_MODEL ?? "gpt-4o-mini",
   // How many prior translated turns to keep as rolling context (section 13).
   rollingContextTurns: Number(process.env.ROLLING_CONTEXT_TURNS ?? 6),
   allowedOrigins: (process.env.ALLOWED_ORIGINS ?? "http://localhost:5173").split(","),
